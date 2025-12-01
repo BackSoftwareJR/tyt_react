@@ -35,12 +35,6 @@ export function useCardDetail(oracleId: string, options: UseCardDetailOptions = 
           url += `?printing_id=${encodeURIComponent(printingId)}`
         }
 
-        console.log('🌐 useCardDetail - Chiamata API:', {
-          url,
-          oracleId,
-          printingId,
-        })
-
         const response = await fetch(url, {
           headers: {
             'Accept': 'application/json',
@@ -56,12 +50,6 @@ export function useCardDetail(oracleId: string, options: UseCardDetailOptions = 
 
         const data: CardDetailResponse = await response.json()
 
-        console.log('🔍 useCardDetail - Risposta API:', {
-          printingIdRichiesto: printingId,
-          selected_printing: data.data?.selected_printing,
-          printingsCount: data.data?.printings?.length || 0,
-        })
-
         if (data.success && data.data) {
           setCardInfo(data.data.card_info)
           setPrintings(data.data.printings || [])
@@ -69,7 +57,6 @@ export function useCardDetail(oracleId: string, options: UseCardDetailOptions = 
 
           // Se abbiamo passato un printingId specifico e l'API restituisce selected_printing
           if (data.data.selected_printing) {
-            console.log('✅ Usando selected_printing dall\'API')
             setSelectedPrinting(data.data.selected_printing)
           } 
           // Se abbiamo passato un printingId ma l'API non restituisce selected_printing,
@@ -77,17 +64,14 @@ export function useCardDetail(oracleId: string, options: UseCardDetailOptions = 
           else if (printingId && data.data.printings && data.data.printings.length > 0) {
             const foundPrinting = data.data.printings.find(p => p.id === printingId)
             if (foundPrinting) {
-              console.log('✅ Trovata printing specifica nell\'array printings:', foundPrinting.id)
               setSelectedPrinting(foundPrinting)
             } else {
-              console.warn('⚠️ PrintingId richiesto non trovato nell\'array printings')
               // Fallback: usa la prima solo se non abbiamo trovato quella specifica
               setSelectedPrinting(data.data.printings[0])
             }
           }
           // Se NON abbiamo passato printingId e non c'è selected_printing, usa la prima come fallback
           else if (!printingId && data.data.printings && data.data.printings.length > 0) {
-            console.log('ℹ️ Nessun printingId richiesto, uso la prima printing come fallback')
             setSelectedPrinting(data.data.printings[0])
           } else {
             setSelectedPrinting(null)
@@ -123,7 +107,6 @@ export function useCardDetail(oracleId: string, options: UseCardDetailOptions = 
 
     async function fetchFirstPrinting() {
       try {
-        console.log('🔄 Fetching first printing da /printings endpoint (fallback)')
         const response = await fetch(
           searchApiConfig.endpoints.cardPrintings(oracleId),
           {
@@ -136,14 +119,12 @@ export function useCardDetail(oracleId: string, options: UseCardDetailOptions = 
         if (response.ok) {
           const data = await response.json()
           if (data.success && data.data?.printings && data.data.printings.length > 0) {
-            console.log('✅ Usando prima printing da /printings endpoint')
             setSelectedPrinting(data.data.printings[0])
             setPrintings(data.data.printings)
           }
         }
       } catch (err) {
         // Silently fail - già abbiamo gestito l'errore principale
-        console.warn('Failed to fetch first printing:', err)
       }
     }
 

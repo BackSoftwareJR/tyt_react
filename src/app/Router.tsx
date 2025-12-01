@@ -46,12 +46,19 @@ import AccountTransactionsPage from '@/pages/Account/Transactions/AccountTransac
 import AccountSecurityPage from '@/pages/Account/Security/AccountSecurityPage'
 import AccountSettingsPage from '@/pages/Account/Settings/AccountSettingsPage'
 import AccountDownloadsPage from '@/pages/Account/Downloads/AccountDownloadsPage'
+import AccountMessagesPage from '@/pages/Account/Messages/AccountMessagesPage'
+import MessagesPage from '@/pages/Messages/MessagesPage'
 import AccountSynchronizationPage from '@/pages/Account/Synchronization/SynchronizationPage'
 import AccountSynchronizationTermsPage from '@/pages/Account/Synchronization/SynchronizationTermsPage'
 
 export default function Router() {
   return (
-    <BrowserRouter>
+    <BrowserRouter
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      }}
+    >
       <Routes>
         {/* Public Routes */}
         <Route element={<MainLayout />}>
@@ -117,6 +124,14 @@ export default function Router() {
             }
           />
           <Route
+            path="/messages"
+            element={
+              <ProtectedRoute>
+                <MessagesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/admin"
             element={
               <ProtectedRoute>
@@ -129,6 +144,16 @@ export default function Router() {
             element={
               <ProtectedRoute>
                 <AccountPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Account Messages - Separate page with custom sidebar */}
+          <Route
+            path="/account/messages"
+            element={
+              <ProtectedRoute>
+                <AccountMessagesPage />
               </ProtectedRoute>
             }
           />

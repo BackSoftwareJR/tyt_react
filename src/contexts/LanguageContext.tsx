@@ -59,6 +59,9 @@ export function LanguageProvider({ children }: LanguageProviderProps) {
   const [isInitialized, setIsInitialized] = useState(false)
   
   const fuseRef = useRef<Fuse<TranslationItem> | null>(null)
+  const isLoadingRef = useRef(false) // Ref per evitare chiamate multiple simultanee
+  const wasAuthenticatedRef = useRef(false) // Ref per tracciare se l'utente era autenticato prima
+  const unauthenticatedInitializedRef = useRef(false) // Ref per tracciare se abbiamo già inizializzato per utenti non autenticati
   const { isAuthenticated } = useAuthStore()
 
   // Funzione per caricare dizionario da IndexedDB o fetch
@@ -162,38 +165,34 @@ export function LanguageProvider({ children }: LanguageProviderProps) {
 
   // Effect per caricare la lingua preferita dall'API quando l'utente è loggato
   useEffect(() => {
-    const loadUserLanguagePreference = async () => {
-      console.log('🔍 LanguageContext - loadUserLanguagePreference chiamato', {
-        isAuthenticated,
-        isInitialized,
-        currentLang: selectedLang
-      })
+    // Evita chiamate multiple simultanee
+    if (isLoadingRef.current) {
+      return
+    }
 
-      // Se l'utente non è autenticato, marca come inizializzato senza chiamare l'API
+    const loadUserLanguagePreference = async () => {
+      // Se l'utente non è autenticato, non fare nulla (non chiamare API e non cambiare isInitialized)
       if (!isAuthenticated) {
-        console.log('🔍 LanguageContext - Utente non autenticato, skip API call')
-        if (!isInitialized) {
-          setIsInitialized(true)
+        // Marca come inizializzato solo la prima volta per utenti non autenticati
+        if (!unauthenticatedInitializedRef.current) {
+          unauthenticatedInitializedRef.current = true
         }
         return
       }
 
       // Se già inizializzato, non ricaricare
       if (isInitialized) {
-        console.log('🔍 LanguageContext - Già inizializzato, skip')
         return
       }
 
-      console.log('🔍 LanguageContext - Chiamata API /profile/settings...')
+      // Marca come in caricamento
+      isLoadingRef.current = true
+      
       try {
         // La risposta API ha questa struttura: { success: true, data: { language_pref: "it" } }
         // api.get() restituisce ApiResponse<T> dove T è il tipo di data
         // Quindi response è { success: boolean, data?: { language_pref: string } }
         const response = await api.get<{ language_pref: string }>('/profile/settings')
-        console.log('🔍 LanguageContext - Risposta API completa:', response)
-        console.log('🔍 LanguageContext - response.success:', response.success)
-        console.log('🔍 LanguageContext - response.data:', response.data)
-        console.log('🔍 LanguageContext - response.data?.language_pref:', response.data?.language_pref)
         
         // ⚠️ IMPORTANTE: Accedi a response.data.language_pref (non response.data.data.language_pref)
         let userLanguage = 'en'
@@ -202,28 +201,16 @@ export function LanguageProvider({ children }: LanguageProviderProps) {
           const langPref = response.data.language_pref
           if (langPref && AVAILABLE_LANGS.includes(langPref)) {
             userLanguage = langPref
-            console.log(`✅ LanguageContext - Lingua preferita trovata: ${userLanguage}`)
-          } else {
-            console.warn(`⚠️ LanguageContext - Lingua non valida dall'API: ${langPref}, uso default: en`)
           }
-        } else {
-          console.warn('⚠️ LanguageContext - Struttura risposta non valida, uso default: en')
         }
         
-        console.log('🔍 LanguageContext - Lingua finale estratta:', userLanguage)
         setSelectedLangState(userLanguage)
       } catch (error: any) {
-        console.error('❌ LanguageContext - Errore nel caricamento della lingua preferita:', error)
-        console.error('❌ LanguageContext - Dettagli errore:', {
-          message: error.message,
-          response: error.response?.data,
-          status: error.response?.status
-        })
         // In caso di errore, mantieni la lingua di default (en)
         setSelectedLangState('en')
       } finally {
+        isLoadingRef.current = false
         setIsInitialized(true)
-        console.log('🔍 LanguageContext - Inizializzazione completata')
       }
     }
 
@@ -232,10 +219,13 @@ export function LanguageProvider({ children }: LanguageProviderProps) {
 
   // Effect per resettare isInitialized quando l'utente fa logout
   useEffect(() => {
-    if (!isAuthenticated && isInitialized) {
-      // Reset quando l'utente fa logout, così al prossimo login ricarica la lingua
+    // Reset solo quando l'utente passa da autenticato a non autenticato (logout)
+    if (wasAuthenticatedRef.current && !isAuthenticated && isInitialized) {
       setIsInitialized(false)
+      isLoadingRef.current = false
     }
+    // Aggiorna il ref con lo stato corrente
+    wasAuthenticatedRef.current = isAuthenticated
   }, [isAuthenticated, isInitialized])
 
   // Effect per caricare dizionario quando cambia selectedLang

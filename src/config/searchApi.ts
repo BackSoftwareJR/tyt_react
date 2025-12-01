@@ -88,6 +88,7 @@ export interface Printing {
   set_name: string
   collector_number: string
   image_uri_small: string | null
+  type?: 'card' // Campo opzionale per distinguere il tipo
 }
 
 export interface Set {
@@ -95,19 +96,27 @@ export interface Set {
   name: string
   icon_svg_uri?: string | null
   set_type?: string
+  release_date?: string
   released_at?: string
   card_count?: number
+  type?: 'set' // Campo opzionale per distinguere il tipo
 }
 
-// AutocompleteResponse secondo la documentazione API
+// Tipo unione per risultati misti autocomplete
+export type AutocompleteResult = (Printing & { type?: 'card' }) | (Set & { type: 'set' })
+
+// AutocompleteResponse secondo la documentazione API (ora supporta risultati misti)
 export interface AutocompleteResponse {
   success: boolean
   cached: boolean
   error?: string
-  data: Printing[]
+  data: AutocompleteResult[]
 }
 
-// SearchResultsResponse per la pagina di ricerca completa
+// Tipo unione per risultati misti ricerca completa
+export type SearchResult = (Card & { type?: 'card' }) | (Set & { type: 'set' })
+
+// SearchResultsResponse per la pagina di ricerca completa (ora supporta risultati misti)
 export interface SearchResultsResponse {
   success: boolean
   cached: boolean
@@ -119,7 +128,7 @@ export interface SearchResultsResponse {
       total_results: number  // Nota: il backend usa total_results invece di total
       per_page: number
     }
-    data: Card[]
+    data: SearchResult[]
   }
 }
 

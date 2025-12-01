@@ -5,11 +5,12 @@
  */
 
 import { useState, useEffect, useRef, KeyboardEvent, useCallback } from 'react'
-import { Search, Loader2, X, ChevronDown } from 'lucide-react'
+import { Search, Loader2, X, ChevronDown, Package } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { useHybridAutocomplete } from '@/hooks/useHybridAutocomplete'
 import { useLanguage, LANGUAGE_NAMES } from '@/contexts/LanguageContext'
-import type { PrintingWithTranslation } from '@/hooks/useHybridAutocomplete'
+import type { AutocompleteResultWithTranslation } from '@/hooks/useHybridAutocomplete'
+import type { Set } from '@/config/searchApi'
 
 export default function SearchBar() {
   const [searchQuery, setSearchQuery] = useState('')
@@ -27,7 +28,7 @@ export default function SearchBar() {
 
   // Usa il nuovo hook per autocomplete ibrido con debounce ottimizzato
   const { results, loading, error, cached, translatedName } = useHybridAutocomplete(searchQuery, {
-    debounceMs: 150, // Ottimizzato per velocità
+    debounceMs: 400, // Aumentato per ridurre le richieste e evitare rate limiting
     minLength: 2,
   })
 
@@ -61,7 +62,6 @@ export default function SearchBar() {
 
     if (fuseResults.length === 0) {
       // FALLBACK: Non ho trovato traduzioni, cerco il termine in inglese
-      console.log(`🔍 Nessun risultato fuzzy per "${searchTerm}" in ${selectedLang}, fallback a ricerca inglese`)
       navigate(`/search?term=${encodeURIComponent(searchTerm)}&lang=en`)
     } else {
       // TRADUZIONE RIUSCITA:
@@ -72,38 +72,37 @@ export default function SearchBar() {
       })
       const oracleIds = Array.from(oracleIdsSet).join(',')
 
-      console.log(`✅ Trovati ${fuseResults.length} risultati fuzzy per "${searchTerm}" in ${selectedLang}`)
-      console.log(`📋 Oracle IDs: ${oracleIds.substring(0, 100)}...`)
-
       // Naviga alla pagina risultati passando gli ID
       navigate(`/search?ids=${oracleIds}&lang=${selectedLang}&originalTerm=${encodeURIComponent(searchTerm)}`)
     }
   }, [searchQuery, navigate, selectedLang, fuseDictionary])
 
-  // Gestione click su printing
-  const handlePrintingClick = useCallback((printing: PrintingWithTranslation) => {
-    console.log('🔍 Printing selezionato:', {
-      oracle_id: printing.oracle_id,
-      printing_id: printing.printing_id,
-      name: printing.name,
-      preferredName: printing.preferredName,
-      originalName: printing.originalName,
-    })
-
-    if (printing.oracle_id && printing.printing_id) {
-      // Passa sia oracle_id che printing_id come query parameter
-      const url = `/card/${printing.oracle_id}?printing_id=${printing.printing_id}`
-      console.log('🚀 Navigazione a:', url)
-      navigate(url)
-      setIsOpen(false)
-      setSearchQuery('')
-    } else if (printing.oracle_id) {
-      // Fallback se printing_id non è disponibile
-      const url = `/card/${printing.oracle_id}`
-      console.log('🚀 Navigazione a (fallback):', url)
-      navigate(url)
-      setIsOpen(false)
-      setSearchQuery('')
+  // Gestione click su risultato (carta o set)
+  const handleResultClick = useCallback((result: AutocompleteResultWithTranslation) => {
+    if (result.type === 'set') {
+      // Naviga al dettaglio set
+      const set = result as Set & { type: 'set' }
+      if (set.code) {
+        navigate(`/set/${set.code}`)
+        setIsOpen(false)
+        setSearchQuery('')
+      }
+    } else {
+      // È una carta
+      const printing = result as any
+      if (printing.oracle_id && printing.printing_id) {
+        // Passa sia oracle_id che printing_id come query parameter
+        const url = `/card/${printing.oracle_id}?printing_id=${printing.printing_id}`
+        navigate(url)
+        setIsOpen(false)
+        setSearchQuery('')
+      } else if (printing.oracle_id) {
+        // Fallback se printing_id non è disponibile
+        const url = `/card/${printing.oracle_id}`
+        navigate(url)
+        setIsOpen(false)
+        setSearchQuery('')
+      }
     }
   }, [navigate])
 
@@ -112,7 +111,7 @@ export default function SearchBar() {
     if (e.key === 'Enter') {
       e.preventDefault()
       if (isOpen && activeIndex >= 0 && displayResults[activeIndex]) {
-        handlePrintingClick(displayResults[activeIndex])
+        handleResultClick(displayResults[activeIndex])
       } else {
         handleSearch()
       }
@@ -202,19 +201,20 @@ export default function SearchBar() {
         overflow: 'visible', // Cambiato da 'hidden' a 'visible' per permettere al dropdown di essere visibile
       }}
     >
-      <div className="w-[90%] max-w-[1100px] flex items-center gap-3 md:flex-row flex-col" style={{ position: 'relative', overflow: 'visible' }}>
+      <div className="w-[90%] max-w-[1100px] flex items-center gap-3 flex-row" style={{ position: 'relative', overflow: 'visible' }}>
         {/* Language Selector Dropdown */}
-        <div className="relative" ref={langDropdownRef} style={{ zIndex: 1001, overflow: 'visible' }}>
+        <div className="relative flex-shrink-0" ref={langDropdownRef} style={{ zIndex: 1001, overflow: 'visible' }}>
           <button
             onClick={() => setIsLangDropdownOpen(!isLangDropdownOpen)}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700 min-w-[120px] justify-between"
+            className="flex items-center gap-1.5 px-3 py-2 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors text-sm font-medium text-gray-700 md:min-w-[120px] min-w-[60px] justify-between"
             disabled={isLangLoading}
           >
-            <span>{LANGUAGE_NAMES[selectedLang] || selectedLang.toUpperCase()}</span>
+            <span className="md:hidden">{selectedLang.toUpperCase()}</span>
+            <span className="hidden md:inline">{LANGUAGE_NAMES[selectedLang] || selectedLang.toUpperCase()}</span>
             {isLangLoading ? (
               <Loader2 className="w-4 h-4 animate-spin text-gray-400" />
             ) : (
-              <ChevronDown className={`w-4 h-4 transition-transform ${isLangDropdownOpen ? 'rotate-180' : ''}`} />
+              <ChevronDown className={`w-4 h-4 transition-transform ${isLangDropdownOpen ? 'rotate-180' : ''} md:inline hidden`} />
             )}
           </button>
 
@@ -245,7 +245,8 @@ export default function SearchBar() {
                       : 'hover:bg-gray-50 text-gray-700'
                   }`}
                 >
-                  {LANGUAGE_NAMES[lang] || lang.toUpperCase()}
+                  <span className="md:hidden">{lang.toUpperCase()}</span>
+                  <span className="hidden md:inline">{LANGUAGE_NAMES[lang] || lang.toUpperCase()}</span>
                 </button>
               ))}
             </div>
@@ -268,7 +269,7 @@ export default function SearchBar() {
               onKeyDown={handleKeyDown}
               onFocus={handleFocus}
               placeholder="Cerca carte Magic: The Gathering..."
-              className="w-full px-[18px] py-3 pr-20 text-[15px] border border-gray-300 
+              className="w-full px-[18px] py-3 pr-20 text-base md:text-[15px] border border-gray-300 
                        outline-none transition-all duration-200
                        focus:border-orange-500 focus:ring-2 focus:ring-orange-500 focus:ring-opacity-20
                        placeholder-gray-400 bg-white"
@@ -280,6 +281,7 @@ export default function SearchBar() {
                 borderBottom: isOpen && hasResults ? 'none' : '1px solid #d1d5db',
                 marginBottom: isOpen && hasResults ? '0' : '0',
                 backgroundColor: 'white',
+                fontSize: '16px', // Previene lo zoom automatico su iOS Safari
               }}
               aria-label="Barra di ricerca carte Magic"
               aria-expanded={isOpen}
@@ -365,12 +367,23 @@ export default function SearchBar() {
                 </div>
               ) : hasResults ? (
                 <div className="divide-y divide-gray-100">
-                  {displayResults.map((printing, index) => {
+                  {displayResults.map((result, index) => {
                     const isActive = index === activeIndex
+                    const isSet = result.type === 'set'
+                    const set = isSet ? (result as Set & { type: 'set' }) : null
+                    const printing = !isSet ? (result as any) : null
+                    
+                    // Chiave univoca
+                    const uniqueKey = isSet 
+                      ? `set-${set?.code}-${index}`
+                      : printing?.printing_id 
+                        ? `${printing.oracle_id}-${printing.printing_id}-${index}`
+                        : `${printing?.oracle_id}-${index}`
+                    
                     return (
                       <div
-                        key={printing.printing_id}
-                        onClick={() => handlePrintingClick(printing)}
+                        key={uniqueKey}
+                        onClick={() => handleResultClick(result)}
                         className={`flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors ${
                           isActive 
                             ? 'bg-orange-50 border-l-4 border-orange-500' 
@@ -379,37 +392,78 @@ export default function SearchBar() {
                         role="option"
                         aria-selected={isActive}
                       >
-                        {/* Printing Image */}
+                        {/* Image/Icon */}
                         <div className="flex-shrink-0">
-                          {printing.image_uri_small ? (
-                            <img
-                              src={printing.image_uri_small}
-                              alt={printing.name}
-                              className="w-12 h-16 rounded object-cover border border-gray-200"
-                              loading="lazy"
-                              onError={(e) => {
-                                (e.target as HTMLImageElement).style.display = 'none'
-                              }}
-                            />
-                          ) : (
-                            <div className="w-12 h-16 rounded bg-gray-100 border border-gray-200 flex items-center justify-center">
-                              <span className="text-xs text-gray-400">No Image</span>
+                          {isSet ? (
+                            // Set icon
+                            <div className="w-12 h-12 rounded bg-gray-100 border border-gray-200 flex items-center justify-center">
+                              {set?.icon_svg_uri ? (
+                                <img
+                                  src={set.icon_svg_uri}
+                                  alt={set.name}
+                                  className="w-10 h-10 object-contain"
+                                  loading="lazy"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).style.display = 'none'
+                                  }}
+                                />
+                              ) : (
+                                <Package className="w-6 h-6 text-gray-400" />
+                              )}
                             </div>
+                          ) : (
+                            // Card image
+                            printing?.image_uri_small ? (
+                              <img
+                                src={printing.image_uri_small}
+                                alt={printing.name}
+                                className="w-12 h-16 rounded object-cover border border-gray-200"
+                                loading="lazy"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).style.display = 'none'
+                                }}
+                              />
+                            ) : (
+                              <div className="w-12 h-16 rounded bg-gray-100 border border-gray-200 flex items-center justify-center">
+                                <span className="text-xs text-gray-400">No Image</span>
+                              </div>
+                            )
                           )}
                         </div>
 
-                        {/* Printing Info */}
+                        {/* Info */}
                         <div className="flex-1 min-w-0">
-                          <div className="font-medium text-gray-900 truncate">
-                            {printing.preferredName || printing.name}
+                          <div className="flex items-center gap-2">
+                            <div className="font-medium text-gray-900 truncate">
+                              {isSet ? set?.name : (printing?.preferredName || printing?.name)}
+                            </div>
+                            {isSet && (
+                              <span className="px-2 py-0.5 text-xs font-medium bg-blue-100 text-blue-700 rounded">
+                                Set
+                              </span>
+                            )}
                           </div>
-                          {printing.preferredName && printing.originalName && printing.originalName !== printing.preferredName && (
+                          {!isSet && printing?.preferredName && printing?.originalName && printing.originalName !== printing.preferredName && (
                             <div className="text-xs text-gray-400 truncate">
                               {printing.originalName}
                             </div>
                           )}
                           <div className="text-sm text-gray-500 truncate">
-                            {printing.set_name} - #{printing.collector_number}
+                            {isSet ? (
+                              <>
+                                {set?.set_type && <span className="capitalize">{set.set_type}</span>}
+                                {set?.release_date && (
+                                  <>
+                                    {set.set_type && <span> • </span>}
+                                    <span>{new Date(set.release_date).getFullYear()}</span>
+                                  </>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                {printing?.set_name} - #{printing?.collector_number}
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>

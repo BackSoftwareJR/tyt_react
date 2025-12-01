@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { searchApiConfig, type AutocompleteResponse, type Printing } from '@/config/searchApi'
+import { searchApiConfig, type AutocompleteResponse, type AutocompleteResult } from '@/config/searchApi'
 
 interface UseAutocompleteOptions {
   debounceMs?: number
@@ -13,7 +13,7 @@ interface UseAutocompleteOptions {
 }
 
 interface UseAutocompleteResult {
-  results: Printing[]
+  results: AutocompleteResult[]
   loading: boolean
   error: string | null
   cached: boolean
@@ -28,7 +28,7 @@ export function useAutocomplete(
     minLength = 2,
   } = options
 
-  const [results, setResults] = useState<Printing[]>([])
+  const [results, setResults] = useState<AutocompleteResult[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cached, setCached] = useState(false)

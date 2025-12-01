@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { searchApiConfig, type AutocompleteResponse, type Printing, type Card } from '@/config/searchApi'
+import { searchApiConfig, type AutocompleteResponse, type Printing, type Card, type Set, type AutocompleteResult } from '@/config/searchApi'
 import { useLanguage } from '@/contexts/LanguageContext'
 
 interface UseHybridAutocompleteOptions {
@@ -17,10 +17,14 @@ interface UseHybridAutocompleteOptions {
 export interface PrintingWithTranslation extends Printing {
   originalName?: string // Nome inglese originale (per fallback)
   preferredName?: string // Nome tradotto (prioritario)
+  type?: 'card' // Tipo per distinguere le carte
 }
 
+// Tipo per risultati misti (carte e set)
+export type AutocompleteResultWithTranslation = PrintingWithTranslation | (Set & { type: 'set' })
+
 interface UseHybridAutocompleteResult {
-  results: PrintingWithTranslation[]
+  results: AutocompleteResultWithTranslation[]
   loading: boolean
   error: string | null
   cached: boolean
@@ -38,7 +42,7 @@ export function useHybridAutocomplete(
 
   const { selectedLang, fuseDictionary, idToPreferredName, isLangLoading } = useLanguage()
 
-  const [results, setResults] = useState<PrintingWithTranslation[]>([])
+  const [results, setResults] = useState<AutocompleteResultWithTranslation[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [cached, setCached] = useState(false)
@@ -46,9 +50,16 @@ export function useHybridAutocomplete(
   
   const abortControllerRef = useRef<AbortController | null>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const rateLimitRef = useRef<{ blocked: boolean; until: number }>({ blocked: false, until: 0 })
 
   // Funzione per chiamare API standard inglese
   const fetchEnglishAutocomplete = useCallback(async (searchTerm: string): Promise<AutocompleteResponse> => {
+    // Controlla se siamo in rate limit
+    if (rateLimitRef.current.blocked && Date.now() < rateLimitRef.current.until) {
+      const waitTime = Math.ceil((rateLimitRef.current.until - Date.now()) / 1000)
+      throw new Error(`Troppe richieste. Attendi ${waitTime} secondi.`)
+    }
+
     const url = `${searchApiConfig.endpoints.autocomplete}?term=${encodeURIComponent(searchTerm.trim())}`
     
     const response = await fetch(url, {
@@ -59,14 +70,32 @@ export function useHybridAutocomplete(
     })
 
     if (!response.ok) {
+      if (response.status === 429) {
+        // Gestisci rate limiting: blocca le richieste per 30 secondi
+        const retryAfter = 30 // secondi
+        rateLimitRef.current = {
+          blocked: true,
+          until: Date.now() + (retryAfter * 1000)
+        }
+        throw new Error(`Troppe richieste. Attendi ${retryAfter} secondi.`)
+      }
       throw new Error(`HTTP error! status: ${response.status}`)
     }
+
+    // Reset rate limit se la richiesta è andata a buon fine
+    rateLimitRef.current = { blocked: false, until: 0 }
 
     return response.json()
   }, [])
 
   // Funzione per chiamare API by-oracle-id con più ID separati da virgola
   const fetchByOracleIds = useCallback(async (oracleIds: string[]): Promise<AutocompleteResponse> => {
+    // Controlla se siamo in rate limit
+    if (rateLimitRef.current.blocked && Date.now() < rateLimitRef.current.until) {
+      const waitTime = Math.ceil((rateLimitRef.current.until - Date.now()) / 1000)
+      throw new Error(`Troppe richieste. Attendi ${waitTime} secondi.`)
+    }
+
     // Usa l'endpoint by-oracle-ids-paginated che accetta più ID
     // Per l'autocomplete, usiamo page=1 e limitiamo i risultati
     const idsParam = oracleIds.join(',')
@@ -80,8 +109,20 @@ export function useHybridAutocomplete(
     })
 
     if (!response.ok) {
+      if (response.status === 429) {
+        // Gestisci rate limiting: blocca le richieste per 30 secondi
+        const retryAfter = 30 // secondi
+        rateLimitRef.current = {
+          blocked: true,
+          until: Date.now() + (retryAfter * 1000)
+        }
+        throw new Error(`Troppe richieste. Attendi ${retryAfter} secondi.`)
+      }
       throw new Error(`HTTP error! status: ${response.status}`)
     }
+
+    // Reset rate limit se la richiesta è andata a buon fine
+    rateLimitRef.current = { blocked: false, until: 0 }
 
     const responseData = await response.json()
     
@@ -90,20 +131,6 @@ export function useHybridAutocomplete(
     // Dobbiamo convertire Card[] in Printing[] e poi al formato AutocompleteResponse
     if (responseData.success && responseData.data && Array.isArray(responseData.data.data)) {
       const cards: Card[] = responseData.data.data
-      
-      // Log per verificare i campi immagine nei Card ricevuti
-      if (cards.length > 0) {
-        const firstCard = cards[0]
-        console.log('🔍 Primo Card ricevuto (verifica campi immagine):', {
-          printing_id: firstCard.printing_id,
-          oracle_id: firstCard.oracle_id,
-          name: firstCard.name,
-          image_uri_small: firstCard.image_uri_small,
-          front_image_url: firstCard.front_image_url,
-          image_uri_normal: firstCard.image_uri_normal,
-          hasAnyImage: !!(firstCard.image_uri_small || firstCard.front_image_url || firstCard.image_uri_normal)
-        })
-      }
       
       // Converti Card[] in Printing[]
       const printings: Printing[] = cards
@@ -117,16 +144,6 @@ export function useHybridAutocomplete(
           // Usa image_uri_small se disponibile, altrimenti prova front_image_url o image_uri_normal
           image_uri_small: card.image_uri_small || card.front_image_url || card.image_uri_normal || null,
         }))
-      
-      // Log per verificare che le immagini siano state convertite correttamente
-      if (printings.length > 0) {
-        console.log('🔍 Primo Printing convertito (verifica immagine):', {
-          printing_id: printings[0].printing_id,
-          name: printings[0].name,
-          image_uri_small: printings[0].image_uri_small,
-          hasImage: !!printings[0].image_uri_small
-        })
-      }
       
       return {
         success: true,
@@ -181,7 +198,17 @@ export function useHybridAutocomplete(
         
         if (!controller.signal.aborted) {
           if (data.success && Array.isArray(data.data)) {
-            setResults(data.data)
+            // Processa risultati misti (carte e set)
+            const processedResults: AutocompleteResultWithTranslation[] = data.data.map((result: AutocompleteResult) => {
+              if (result.type === 'set') {
+                // È un set, restituiscilo così com'è
+                return { ...result, type: 'set' } as Set & { type: 'set' }
+              } else {
+                // È una carta (Printing)
+                return { ...result, type: 'card' } as PrintingWithTranslation
+              }
+            })
+            setResults(processedResults)
             setCached(data.cached || false)
             setError(null)
             setTranslatedName(null) // Nessuna traduzione per inglese
@@ -202,12 +229,19 @@ export function useHybridAutocomplete(
           // Aspetta che il dizionario finisca di caricare
           return
         }
-        console.warn('⚠️ Dizionario non caricato, uso fallback inglese')
         const data = await fetchEnglishAutocomplete(searchTerm)
         
         if (!controller.signal.aborted) {
           if (data.success && Array.isArray(data.data)) {
-            setResults(data.data.map(p => ({ ...p, originalName: p.name })))
+            // Processa risultati misti
+            const processedResults: AutocompleteResultWithTranslation[] = data.data.map((result: AutocompleteResult) => {
+              if (result.type === 'set') {
+                return { ...result, type: 'set' } as Set & { type: 'set' }
+              } else {
+                return { ...result, originalName: result.name, type: 'card' } as PrintingWithTranslation
+              }
+            })
+            setResults(processedResults)
             setCached(data.cached || false)
             setError(null)
             setTranslatedName(null)
@@ -225,12 +259,19 @@ export function useHybridAutocomplete(
 
       // CASO 2a: Nessun risultato nel dizionario - FALLBACK a ricerca inglese
       if (fuseResults.length === 0) {
-        console.log(`🔍 Nessun risultato nel dizionario per "${searchTerm}", uso fallback inglese`)
         const data = await fetchEnglishAutocomplete(searchTerm)
         
         if (!controller.signal.aborted) {
           if (data.success && Array.isArray(data.data)) {
-            setResults(data.data.map(p => ({ ...p, originalName: p.name })))
+            // Processa risultati misti
+            const processedResults: AutocompleteResultWithTranslation[] = data.data.map((result: AutocompleteResult) => {
+              if (result.type === 'set') {
+                return { ...result, type: 'set' } as Set & { type: 'set' }
+              } else {
+                return { ...result, originalName: result.name, type: 'card' } as PrintingWithTranslation
+              }
+            })
+            setResults(processedResults)
             setCached(data.cached || false)
             setError(null)
             setTranslatedName(null)
@@ -253,55 +294,25 @@ export function useHybridAutocomplete(
         idToPreferredMap[result.item.id] = result.item.preferred
       })
 
-      console.log(`✅ Trovati ${fuseResults.length} risultati fuzzy per "${searchTerm}" in ${selectedLang}`)
-      console.log(`📋 Oracle IDs: ${oracleIds.slice(0, 5).join(', ')}...`)
-
       // Chiama API by-oracle-id con tutti gli ID trovati
       const data = await fetchByOracleIds(oracleIds)
       
-      console.log('🔍 Risposta API:', {
-        success: data.success,
-        dataLength: Array.isArray(data.data) ? data.data.length : 'not an array',
-        error: data.error,
-        cached: data.cached
-      })
-      
       if (!controller.signal.aborted) {
         if (data.success && Array.isArray(data.data)) {
-          console.log(`✅ Ricevuti ${data.data.length} risultati dall'API`)
-          
-          // Log per verificare se le immagini sono presenti
-          if (data.data.length > 0) {
-            const firstResult = data.data[0] as Printing
-            console.log('🔍 Primo risultato (verifica immagini):', {
-              printing_id: firstResult.printing_id,
-              name: firstResult.name,
-              image_uri_small: firstResult.image_uri_small,
-              hasImage: !!firstResult.image_uri_small
-            })
-          }
-          
           // Mappa i risultati sostituendo il nome con il preferredName quando disponibile
-          const mappedResults: PrintingWithTranslation[] = data.data.map((printing: Printing) => {
-            const preferredName = idToPreferredMap[printing.oracle_id]
-            return {
-              ...printing, // Preserva tutti i campi incluso image_uri_small
-              name: preferredName || printing.name, // Usa preferredName se disponibile, altrimenti name originale
-              preferredName: preferredName || undefined,
-              originalName: printing.name, // Salva sempre il nome inglese originale
-            }
-          })
-
-          console.log(`✅ Mappati ${mappedResults.length} risultati`)
-          // Verifica che le immagini siano preservate dopo la mappatura
-          if (mappedResults.length > 0) {
-            console.log('🔍 Primo risultato mappato (verifica immagini):', {
-              printing_id: mappedResults[0].printing_id,
-              name: mappedResults[0].name,
-              image_uri_small: mappedResults[0].image_uri_small,
-              hasImage: !!mappedResults[0].image_uri_small
+          // Nota: fetchByOracleIds restituisce solo carte, non set
+          const mappedResults: AutocompleteResultWithTranslation[] = data.data
+            .filter((result): result is Printing => result.type !== 'set')
+            .map((printing: Printing) => {
+              const preferredName = idToPreferredMap[printing.oracle_id]
+              return {
+                ...printing, // Preserva tutti i campi incluso image_uri_small
+                name: preferredName || printing.name, // Usa preferredName se disponibile, altrimenti name originale
+                preferredName: preferredName || undefined,
+                originalName: printing.name, // Salva sempre il nome inglese originale
+                type: 'card' as const,
+              }
             })
-          }
           
           setResults(mappedResults)
           setCached(data.cached || false)
@@ -309,7 +320,6 @@ export function useHybridAutocomplete(
           // Imposta il primo nome tradotto trovato come translatedName
           setTranslatedName(fuseResults[0]?.item?.preferred || null)
         } else {
-          console.warn('⚠️ API non ha restituito risultati validi:', data)
           setResults([])
           setCached(false)
           setError(data.error || 'Errore durante la ricerca')
@@ -318,13 +328,18 @@ export function useHybridAutocomplete(
     } catch (err) {
       // Ignora errori di cancellazione
       if (err instanceof Error && err.name !== 'AbortError') {
-        console.error('❌ Errore ricerca autocomplete:', err)
         let errorMessage = 'Errore durante la ricerca'
         
-        if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+        if (err.message.includes('Troppe richieste')) {
+          errorMessage = err.message
+        } else if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
           errorMessage = 'Errore di connessione'
         } else if (err.message.includes('HTTP error')) {
-          errorMessage = `Errore del server: ${err.message}`
+          if (err.message.includes('429')) {
+            errorMessage = 'Troppe richieste. Attendi qualche secondo prima di riprovare.'
+          } else {
+            errorMessage = `Errore del server: ${err.message}`
+          }
         }
         
         setError(errorMessage)

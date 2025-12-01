@@ -11,7 +11,6 @@ import {
   ChevronDown,
   MessageCircle,
   CreditCard,
-  Users,
   ShoppingBag,
   Folder,
   TrendingUp,
@@ -122,18 +121,11 @@ export default function UserMenu() {
                 <span className="font-medium">I miei messaggi</span>
               </Link>
               <Link 
-                to="/credit" 
+                to="/account/credit" 
                 className="flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-orange-50 hover:text-orange-600 transition-colors duration-150"
               >
                 <CreditCard className="w-4 h-4 text-orange-500" />
                 <span className="font-medium">Credito</span>
-              </Link>
-              <Link 
-                to="/social" 
-                className="flex items-center gap-3 px-4 py-3 text-gray-700 hover:bg-orange-50 hover:text-orange-600 transition-colors duration-150"
-              >
-                <Users className="w-4 h-4 text-orange-500" />
-                <span className="font-medium">Social</span>
               </Link>
             </motion.div>
           )}
