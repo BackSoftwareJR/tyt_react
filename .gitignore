@@ -77,3 +77,15 @@ jspm_packages/
 
 # TernJS port file
 .tern-port
+
+# Large media files
+public/videos/*.gif
+public/videos/*.mp4
+public/videos/*.mov
+public/videos/*.avi
+public/videos/*.webm
+*.gif
+*.mp4
+*.mov
+*.avi
+*.webm
